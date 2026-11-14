@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Voyage partagé</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root { --bg:#F6F7F6; --card:#fff; --text:#0E1A22; --muted:#7A898E; --line:#E3E7E6; --accent:#FF7A45; --ok:#1F8A55; --okbg:#E6F6EE; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0E1A22; --card:#16262F; --text:#F2F5F5; --muted:#8FA3AB; --line:#22343E; --okbg:#173A2A; --ok:#5FD39A; } }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:0 0 40px; }
+  header { padding:18px 16px 12px; }
+  h1 { font-size:22px; } .sub { color:var(--muted); font-size:13px; margin-top:2px; }
+  .live { display:inline-block; margin-top:8px; background:var(--okbg); color:var(--ok); border-radius:10px; padding:4px 9px; font-size:12.5px; font-weight:700; }
+  #map { height:300px; background:var(--line); }
+  .step { display:flex; gap:10px; padding:12px 16px; border-top:1px solid var(--line); }
+  .n { flex:none; width:24px; height:24px; border-radius:50%; background:var(--accent); color:#fff; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+  .step h2 { font-size:15px; } .step small { color:var(--muted); font-size:12.5px; display:block; margin-top:2px; }
+  .step p { margin-top:6px; font-size:14px; line-height:1.5; white-space:pre-wrap; }
+  .photos { display:flex; gap:6px; overflow-x:auto; margin-top:8px; }
+  .photos img { height:120px; border-radius:8px; flex:none; cursor:zoom-in; }
+  .center { text-align:center; padding:60px 20px; }
+  .pins { display:flex; gap:8px; justify-content:center; margin:16px 0; }
+  .pins input { width:46px; height:52px; font-size:22px; text-align:center; border:2px solid var(--line); border-radius:10px; background:var(--card); color:var(--text); }
+  button { background:var(--accent); color:#fff; border:0; border-radius:10px; padding:12px 22px; font-size:15px; font-weight:700; cursor:pointer; }
+  .err { color:#E4574C; margin-top:10px; font-size:14px; }
+  footer { text-align:center; color:var(--muted); font-size:11.5px; padding:20px 16px; }
+  #zoom { position:fixed; inset:0; background:rgba(0,0,0,.9); display:none; align-items:center; justify-content:center; z-index:9999; }
+  #zoom img { max-width:100%; max-height:100%; }
+</style>
+</head>
+<body>
+<main id="app"><div class="center">Chargement…</div></main>
+<div id="zoom" onclick="this.style.display='none'"><img alt=""></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+// Réglages : adresse de la fonction « share » et clé publique du projet.
+const FUNCTION_URL = 'https://xvpuidmnyfoovubgxvqz.supabase.co/functions/v1/share';
+const PUBLIC_KEY = 'sb_publishable_DpoqNnIxMXCT4P2-38bMkA_DDnUkcgd';
+
+const app = document.getElementById('app');
+const token = decodeURIComponent(location.hash.slice(1));
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+const flag = (iso) => iso && iso.length === 2 ? String.fromCodePoint(...[...iso.toUpperCase()].map((c) => 127397 + c.charCodeAt(0))) : '';
+const day = (d) => d ? new Date(d).toLocaleDateString('fr-FR', { day:'numeric', month:'long' }) : '';
+const ago = (d) => { const m = Math.round((Date.now() - new Date(d)) / 60000); return m < 1 ? "à l'instant" : m < 60 ? `il y a ${m} min` : m < 1440 ? `il y a ${Math.round(m/60)} h` : `le ${day(d)}`; };
+
+function message(title, text) {
+  app.innerHTML = `<div class="center"><div style="font-size:34px">🧭</div><h1 style="margin-top:8px">${esc(title)}</h1><p class="sub" style="margin-top:6px">${esc(text)}</p></div>`;
+}
+
+function askPin(error) {
+  app.innerHTML = `<div class="center"><div style="font-size:34px">🔑</div><h1 style="margin-top:8px">Voyage privé</h1>
+    <p class="sub" style="margin-top:6px">Saisissez le code donné par le voyageur.</p>
+    <div class="pins">${[0,1,2,3].map(() => '<input inputmode="numeric" maxlength="1" autocomplete="off">').join('')}</div>
+    <button id="go">Voir le voyage</button>${error ? `<div class="err">${esc(error)}</div>` : ''}</div>`;
+  const inputs = [...app.querySelectorAll('.pins input')];
+  inputs.forEach((el, i) => el.addEventListener('input', () => { el.value = el.value.replace(/\D/g, ''); if (el.value && inputs[i+1]) inputs[i+1].focus(); }));
+  inputs[0].focus();
+  document.getElementById('go').onclick = () => load(inputs.map((i) => i.value).join(''));
+}
+
+let currentPin = '';
+async function load(pin) {
+  currentPin = pin;
+  if (!token) return message('Lien incomplet', "Vérifiez que vous avez bien copié tout le lien.");
+  let r;
+  try {
+    r = await fetch(FUNCTION_URL, { method:'POST', headers:{ 'content-type':'application/json', apikey: PUBLIC_KEY }, body: JSON.stringify({ t: token, pin }) });
+  } catch { return message('Pas de connexion', 'Vérifiez votre connexion internet puis rechargez la page.'); }
+  if (r.status === 401) return askPin();
+  if (r.status === 403) return askPin('Code incorrect.');
+  if (r.status === 429) return message('Trop d\'essais', 'Réessayez dans 15 minutes.');
+  if (r.status === 410) return message("Ce lien n'est plus valable", 'Il a expiré ou le voyageur l\'a désactivé.');
+  if (!r.ok) return message('Voyage indisponible', 'Réessayez un peu plus tard.');
+  show(await r.json());
+}
+
+function show(v) {
+  document.title = v.name;
+  const steps = [...v.steps].sort((a, b) => (b.arrival || '').localeCompare(a.arrival || ''));
+  const pos = v.position;
+  app.innerHTML = `<header><h1>${flag(v.steps[0]?.iso)} ${esc(v.name)}</h1>
+      <div class="sub">par ${esc(v.by)} · ${day(v.start)}${v.end ? ' – ' + day(v.end) : ''}</div>
+      ${pos ? `<span class="live">● En direct · près de ${esc(pos.city || '…')} · ${ago(pos.at)}</span>` : ''}</header>
+    <div id="map"></div>
+    ${steps.map((s, i) => `<div class="step"><div class="n">${steps.length - i}</div><div style="min-width:0;flex:1">
+      <h2>${esc(s.name)}</h2><small>${flag(s.iso)} ${esc(s.country)}${s.arrival ? ' · ' + day(s.arrival) : ''}${s.departure && day(s.departure) !== day(s.arrival) ? ' – ' + day(s.departure) : ''}</small>
+      ${s.notes ? `<p>${esc(s.notes)}</p>` : ''}
+      ${s.photos.length ? `<div class="photos">${s.photos.map((u) => `<img src="${esc(u)}" loading="lazy" alt="">`).join('')}</div>` : ''}
+    </div></div>`).join('')}
+    <footer>Lien privé · valable jusqu'au ${day(v.expires)} · aucune application nécessaire · créé avec travel_app</footer>`;
+  app.querySelectorAll('.photos img').forEach((im) => im.onclick = () => { const z = document.getElementById('zoom'); z.querySelector('img').src = im.src; z.style.display = 'flex'; });
+
+  const map = L.map('map', { scrollWheelZoom:false });
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:18, attribution:'© OpenStreetMap' }).addTo(map);
+  const pts = v.steps.filter((s) => typeof s.lat === 'number').sort((a, b) => (a.arrival || '').localeCompare(b.arrival || '')).map((s) => [s.lat, s.lon]);
+  if (pts.length > 1) L.polyline(pts, { color:'#FF7A45', weight:3, dashArray:'2 8' }).addTo(map);
+  pts.forEach((p) => L.circleMarker(p, { radius:7, color:'#fff', weight:2, fillColor:'#FF7A45', fillOpacity:1 }).addTo(map));
+  if (pos && typeof pos.lat === 'number') { L.circleMarker([pos.lat, pos.lon], { radius:9, color:'#fff', weight:3, fillColor:'#1F8A55', fillOpacity:1 }).addTo(map); pts.push([pos.lat, pos.lon]); }
+  if (pts.length) map.fitBounds(pts, { padding:[30, 30], maxZoom:11 }); else map.setView([46, 2], 4);
+}
+
+load('');
+// Mise à jour en direct : nouvelle lecture toutes les 5 minutes.
+setInterval(() => { if (document.getElementById('map')) load(currentPin); }, 300000);
+</script>
+</body>
+</html>
