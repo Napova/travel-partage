@@ -50,9 +50,12 @@ const TripMap = {
     this.pts = [];
     steps.forEach((s, i) => {
       if (typeof s.lat !== 'number' || typeof s.lon !== 'number') { this.pins.push({ remove() {}, getElement: () => null }); return; }
+      // Mapbox déplace l'élément extérieur ; l'animation reste sur l'intérieur.
       const el = document.createElement('div');
-      el.className = 'pin' + (i === current ? ' cur' : '');
-      el.textContent = i + 1;
+      const dot = document.createElement('div');
+      dot.className = 'pin' + (i === current ? ' cur' : '');
+      dot.textContent = i + 1;
+      el.appendChild(dot);
       el.onclick = (ev) => { ev.stopPropagation(); this.onPin?.(i); };
       this.pins.push(new mapboxgl.Marker({ element: el }).setLngLat([s.lon, s.lat]).addTo(this.map));
       this.pts.push([s.lon, s.lat]);
@@ -88,9 +91,9 @@ const TripMap = {
   // Met en avant l'étape [i] (pastille agrandie) et la garde visible.
   highlight(i) {
     if (!this.map || i === this.hi) return;
-    this.pins[this.hi]?.getElement()?.classList.remove('hi');
+    this.pins[this.hi]?.getElement()?.firstChild?.classList.remove('hi');
     this.hi = i;
-    const el = this.pins[i]?.getElement();
+    const el = this.pins[i]?.getElement()?.firstChild;
     if (!el) return;
     el.classList.add('hi');
     const ll = this.pins[i].getLngLat();
