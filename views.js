@@ -115,6 +115,20 @@ const View = {
       `<button data-emoji="${k}" class="${mine.has(`${stepId}:${k}`) ? 'mine' : ''}">${e}${c[k] ? ' ' + c[k] : ''}</button>`).join('');
   },
 
+  // Actualisation légère : carte « en direct », point de position, réactions.
+  live(d) {
+    this.v.position = d.position;
+    this.v.reactions = d.reactions;
+    this.v.mine = d.mine;
+    const card = app.querySelector('.live'), html = this.liveCard();
+    if (card && html) card.outerHTML = html;
+    else if (!card && html) app.querySelector('.pane[data-pane="0"] .scroll')?.insertAdjacentHTML('afterbegin', html);
+    else card?.remove();
+    TripMap.setPosition(d.position);
+    this.refreshReactions();
+    this.weather();
+  },
+
   refreshReactions() {
     app.querySelectorAll('.react').forEach((r) => (r.innerHTML = this.reactButtons(r.dataset.step)));
   },

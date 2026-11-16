@@ -129,12 +129,17 @@ const App = {
     } catch {}
   },
 
-  // Mise à jour en direct : nouvelle lecture toutes les 5 minutes.
+  // Mise à jour en direct toutes les 5 minutes : position et réactions
+  // seulement. Tout est relu toutes les 50 minutes (adresses des photos
+  // valables 1 heure, nouvelles étapes).
+  lastFull: Date.now(),
   async refresh() {
     if (!View.v || document.hidden) return;
     try {
-      const r = await this.call({ refresh: true });
-      if (r.ok) View.render(r.data, true);
+      const full = Date.now() - this.lastFull > 3000000;
+      const r = await this.call({ refresh: full ? true : 'live' });
+      if (!r.ok) return;
+      if (full) { this.lastFull = Date.now(); View.render(r.data, true); } else View.live(r.data);
     } catch {}
   },
 };
@@ -143,3 +148,5 @@ document.documentElement.lang = lang;
 app.innerHTML = `<div class="access"><div class="inner msg" style="color:var(--muted)">${esc(T().loading)}</div></div>`;
 App.start();
 setInterval(() => App.refresh(), 300000);
+// Retour sur la page après une longue absence : mise à jour tout de suite.
+document.addEventListener('visibilitychange', () => { if (!document.hidden) App.refresh(); });

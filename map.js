@@ -60,13 +60,20 @@ const TripMap = {
       this.pins.push(new mapboxgl.Marker({ element: el }).setLngLat([s.lon, s.lat]).addTo(this.map));
       this.pts.push([s.lon, s.lat]);
     });
-    if (position && typeof position.lat === 'number') {
-      const el = document.createElement('div');
-      el.className = 'me';
-      this.me = new mapboxgl.Marker({ element: el }).setLngLat([position.lon, position.lat]).addTo(this.map);
-    }
+    this.setPosition(position);
     this.drawRoute();
     this.fit(position);
+  },
+
+  // Point « je suis ici » déplacé sans recadrer la carte.
+  setPosition(position) {
+    if (!this.map) return;
+    this.me?.remove();
+    this.me = null;
+    if (!position || typeof position.lat !== 'number') return;
+    const el = document.createElement('div');
+    el.className = 'me';
+    this.me = new mapboxgl.Marker({ element: el }).setLngLat([position.lon, position.lat]).addTo(this.map);
   },
 
   drawRoute() {
